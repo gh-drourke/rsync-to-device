@@ -1,1 +1,3 @@
-Initial commit
+refactor: verify_device() -> select-device
+feat: user now has option to select device from list
+feat: more disk information displayed in list

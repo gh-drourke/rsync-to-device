@@ -158,47 +158,83 @@ print_info() {
     printf "%s\n" "Device Given:          $1"
 }
 
-# Function to verify device given as an argument is valid
-verify_device() {
-    search_device="dev/$1"
-    # List and Mount device
-    printf "\n%s\n" "Devices available"
-    output=$(sudo fdisk -l | grep -e '^/dev/sd')
-    output_fmt=$(echo "$output" | sed 's/^/  /')
-    echo "$output_fmt"
-    echo $'------------'
+# Function to get disk information
+get_disk_info() {
+    local device_path=$1
+    local disk_path
+    local model
+    local vendor
 
-    # Check if the search device exists in the list (-q is for quiet search)
-    if echo "$output" | grep -q "$search_device"; then
-        echo "Device $search_device found."
-    else
-        echo "Device $search_device not found."
-        exit 1
+    # Extract the disk path from the partition path
+    disk_path=$(lsblk -no pkname "$device_path" | head -n 1)
+
+    # Check if disk path extraction was successful
+    if [ -z "$disk_path" ]; then
+        echo "Invalid device path: $device_path"
+        return 1
     fi
 
-    # prompt_confirm "$search_device: Device to be mounted" || exit 0
-    # if ! prompt_confirm "$search_device: Device to be mounted"; then
-    if ! prompt_confirm "Mount device?"; then
+    # Construct the full disk path
+    disk_path="/dev/$disk_path"
+
+    # Get the model number using udevadm
+    model=$(udevadm info --query=all --name="$disk_path" | grep "ID_MODEL=" | cut -d= -f2)
+    if [ -z "$model" ]; then
+        model="unknown"
+    fi
+
+    # Get the vendor using udevadm
+    vendor=$(udevadm info --query=all --name="$disk_path" | grep "ID_VENDOR=" | cut -d= -f2)
+    if [ -z "$vendor" ]; then
+        vendor="unknown"
+    fi
+
+    # Get the size of the disk in human-readable form using lsblk
+    size=$(lsblk -no SIZE -d "$disk_path" | head -n 1)
+    if [ -z "$size" ]; then
+        size="unknown"
+    fi
+
+    echo "vendor:${vendor}; model:${model}; size:${size}"
+}
+
+# Function to list available devices and allow user to select one
+select_device() {
+    local devices
+    devices=$(sudo fdisk -l | grep -e '^/dev/sd' | awk '{print $1}')
+    local count=1
+
+    echo "Available devices:"
+    for device in $devices; do
+        device_info=$(get_disk_info "$device")
+        echo "  $count) $device - $device_info"
+        count=$((count + 1))
+    done
+    echo "------------"
+
+    while true; do
+        read -r -p "Select the device number to mount: " device_number
+        if [[ $device_number =~ ^[0-9]+$ ]] && ((device_number >= 1 && device_number < count)); then
+            search_device=$(echo "$devices" | sed -n "${device_number}p")
+            echo "Device $search_device selected."
+            break
+        else
+            echo "Invalid selection. Please enter a number between 1 and $((count - 1))."
+        fi
+    done
+
+    if ! prompt_confirm "Mount device $search_device?"; then
         cleanup
         exit 0
-    fi
-    # Search for the search_device in the formatted output
-    if echo "$output_fmt" | grep -q "$search_device"; then
-        printf "\n%s\n" "$search_device: OK. Found in device(s) available."
-    else
-        printf "\n%s\n" "$search_device: Error. Not found in device(s) available."
-        printf "%s\n" "exiting!"
-        cleanup
-        exit 1
     fi
 }
 
 main() {
     print_info "$1"
-    verify_device "$1"
+    select_device
     echo
     if verify_mount_point $MNT_POINT; then
-        if sudo mount "/dev/$1" "$MNT_POINT"; then
+        if sudo mount "$search_device" "$MNT_POINT"; then
             printf "%s\n" ".. $MNT_POINT -> is now mounted"
         else
             printf "%s\n" ".. $MNT_POINT -> can not be mounted"
@@ -210,7 +246,6 @@ main() {
         printf "%s\n" "dest path: not confirmed"
     else
         echo
-        # prompt_confirm "Continue to backup?" || exit 0
         if ! prompt_confirm "Continue to backup?"; then
             cleanup
             exit 0
@@ -227,7 +262,7 @@ main() {
 # Command line must identify device to be mounted
 if [ -z "$1" ]; then
     echo "Usage: No arguement given for device to be mounted"
-    echo "example: rssdx sdc1"
+    echo "example: rsync2dev sdc1"
     exit 0
 fi
 main "$1"

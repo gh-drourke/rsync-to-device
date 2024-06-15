@@ -58,7 +58,7 @@ These defaults can be modified by user within the script to fit their needs.
 - `do_backup()`: Performs the backup using rsync.
 - `cleanup()`: Unmounts the device and removes the mount point.
 - `print_info()`: Prints user and path information.
-- `verify_device()`: Verifies the specified device exists and prompts for mounting.
+- `select_device()`: Prompts for a device and prompts for mounting.
 
 ## Main Execution Flow:
 
